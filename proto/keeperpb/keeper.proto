@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package reelfs;
+
+option go_package = "reelfs/gen/keeperpb";
+
+service KeeperService {
+  rpc Replicate(ReplicateCommand) returns (ReplicateResponse);
+}
+
+message ReplicateCommand {
+  string filename = 1;
+  string filepath = 2;
+  string destination_address = 3;
+  string destination_id = 4;
+}
+
+message ReplicateResponse {
+  bool success = 1;
+  string message = 2;
+}

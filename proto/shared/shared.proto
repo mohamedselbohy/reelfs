@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package reelfs;
+
+option go_package = "reelfs/gen/shared";
+
+message KeeperInfo {
+  string keeper_id = 1;
+  string address = 2;
+}
+
+message FileInfo {
+  string filename = 1;
+  string filepath = 2;
+  int64 filesize = 3;
+}
+

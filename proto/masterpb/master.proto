@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package reelfs;
+
+option go_package = "reelfs/gen/masterpb";
+
+import "shared/shared.proto";
+
+service MasterService {
+  rpc RequestUpload(UploadRequest) returns (UploadResponse);
+  rpc ConfirmUpload(ConfirmUploadRequest) returns (ConfirmUploadResponse);
+  rpc RequestDownload(DownloadRequest) returns (DownloadResponse);
+}
+
+message UploadRequest {
+  string filename = 1;
+  int64 filesize = 2;
+}
+
+message UploadResponse {
+  string transfer_id = 1;
+  string keeper_address = 2;
+}
+
+message ConfirmUploadRequest { string transfer_id = 1; }
+
+message ConfirmUploadResponse {
+  enum Status {
+    SUCCESS = 0;
+    PENDING = 1;
+    FAILED = 2;
+  }
+  Status status = 1;
+  string message = 2;
+}
+
+message DownloadRequest { string filename = 1; }
+
+message DownloadResponse {
+  int64 filesize = 1;
+  repeated reelfs.KeeperInfo keepers = 2;
+}
+
+service MasterInternalService {
+  rpc FileSync(FileSyncRequest) returns (FileSyncResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc NotifyUploadComplete(UploadCompleteNotification)
+      returns (UploadCompleteAck);
+  rpc NotifyReplicationComplete(ReplicationCompleteNotification)
+      returns (ReplicationCompleteAck);
+}
+
+message HeartbeatRequest {
+  string keeper_id = 1;
+  string tcp_address = 2;
+}
+
+message HeartbeatResponse { bool success = 1; }
+
+message FileSyncRequest {
+  string keeper_id = 1;
+  repeated reelfs.FileInfo files = 2;
+}
+
+message FileSyncResponse {
+  bool success = 1;
+}
+
+message UploadCompleteNotification {
+  bool success = 1;
+  string transfer_id = 2;
+  string keeper_id = 3;
+  string filepath = 4; // The rest of the file info should be saved on the
+                       // master where it stores info according to transfer_id
+  string message =
+      5; // if it failed maybe the client should know what happenned over there.
+}
+
+message UploadCompleteAck { bool success = 1; }
+
+message ReplicationCompleteNotification {
+  bool success = 1;
+  string filename = 2;
+  string source_keeper_id = 3;
+  string destination_keeper_id = 4;
+  string destination_filepath = 5;
+}
+
+message ReplicationCompleteAck { bool success = 1; }
