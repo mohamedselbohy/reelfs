@@ -30,14 +30,14 @@ func (s *KeeperServer) Replicate(ctx context.Context, req *keeperpb.ReplicateCom
 	f, err := os.Open(req.Filepath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &keeperpb.ReplicateResponse{Success: false, Message: "file does not exist"}, err
+			return &keeperpb.ReplicateResponse{Success: false, Msg: "file does not exist"}, err
 		}
-		return &keeperpb.ReplicateResponse{Success: false, Message: fmt.Sprintf("open file: %v", err)}, err
+		return &keeperpb.ReplicateResponse{Success: false, Msg: fmt.Sprintf("open file: %v", err)}, err
 	}
 	info, err := f.Stat()
 	if err != nil {
 		f.Close()
-		return &keeperpb.ReplicateResponse{Success: false, Message: fmt.Sprintf("stat file: %v", err)}, err
+		return &keeperpb.ReplicateResponse{Success: false, Msg: fmt.Sprintf("stat file: %v", err)}, err
 	}
 	filesize := uint64(info.Size())
 	filename := req.Filename
@@ -45,10 +45,11 @@ func (s *KeeperServer) Replicate(ctx context.Context, req *keeperpb.ReplicateCom
 	log.Printf("Replicating to keeper at addr: %s", req.DestinationAddress)
 	tcpClient, err := client.NewTCPClient(req.DestinationAddress)
 	if err != nil {
-		return &keeperpb.ReplicateResponse{Success: false, Message: fmt.Sprintf("dial destination: %v", err)}, err
+		f.Close()
+		return &keeperpb.ReplicateResponse{Success: false, Msg: fmt.Sprintf("dial destination: %v", err)}, err
 	}
 	go s.doReplicate(ctx, req.DestinationId, filename, filesize, f, tcpClient)
-	return &keeperpb.ReplicateResponse{Success: true, Message: "replication started"}, nil
+	return &keeperpb.ReplicateResponse{Success: true, Msg: "replication started"}, nil
 }
 
 func (s *KeeperServer) doReplicate(ctx context.Context, destinationID string, filename string, filesize uint64, f *os.File, tcpClient *client.TCPClient) {
@@ -61,6 +62,7 @@ func (s *KeeperServer) doReplicate(ctx context.Context, destinationID string, fi
 			SourceKeeperId:      s.KeeperID,
 			DestinationKeeperId: destinationID,
 			DestinationFilepath: "",
+			SenderId:            s.KeeperID,
 			Success:             false,
 		})
 	} else {
@@ -69,6 +71,7 @@ func (s *KeeperServer) doReplicate(ctx context.Context, destinationID string, fi
 			SourceKeeperId:      s.KeeperID,
 			DestinationKeeperId: destinationID,
 			DestinationFilepath: path,
+			SenderId:            s.KeeperID,
 			Success:             true,
 		})
 	}

@@ -17,5 +17,5 @@ message ReplicateCommand {
 
 message ReplicateResponse {
   bool success = 1;
-  string message = 2;
+  string msg = 2;
 }

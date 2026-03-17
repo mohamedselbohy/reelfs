@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"time"
 
 	"reelfs/gen/masterpb"
@@ -101,6 +102,13 @@ func (h *TCPHandler) HandleConnection(conn net.Conn) {
 func (h *TCPHandler) HandleUpload(conn net.Conn, metadata []byte) {
 	transferID, filename, filesize, err := protocol.DecodeMetadataUpload(metadata)
 	if err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		h.masterClient.NotifyUploadComplete(ctx, &masterpb.UploadCompleteNotification{
+			Success:    false,
+			TransferId: transferID,
+			Msg:        fmt.Sprintf("decoding upload metadata: %v", err),
+		})
+		cancel()
 		h.SendError(conn, "decoding upload metadata: %v", err)
 		return
 	}
@@ -110,7 +118,27 @@ func (h *TCPHandler) HandleUpload(conn net.Conn, metadata []byte) {
 	limit := io.LimitReader(conn, int64(filesize))
 	filePath, err := h.storage.StoreFile(filename, limit, filesize)
 	if err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		h.masterClient.NotifyUploadComplete(ctx, &masterpb.UploadCompleteNotification{
+			Success:    false,
+			TransferId: transferID,
+			Msg:        fmt.Sprintf("storing file: %v", err),
+		})
+		cancel()
 		h.SendError(conn, "storing file: %v", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	res, err := h.masterClient.NotifyUploadComplete(ctx, &masterpb.UploadCompleteNotification{
+		Success:    true,
+		TransferId: transferID,
+		Filepath:   filePath,
+		KeeperId:   h.keeperID,
+	})
+	cancel()
+	if err != nil || !res.Success {
+		h.SendError(conn, "commiting file: %v", err)
+		os.Remove(filePath)
 		return
 	}
 	log.Printf("Upload_{%s} complete: %s -> %s", transferID, filename, filePath)
@@ -168,6 +196,7 @@ func (h *TCPHandler) HandleReplicate(conn net.Conn, metadata []byte) {
 			Filename:            filename,
 			DestinationKeeperId: h.keeperID,
 			DestinationFilepath: "",
+			SenderId:            h.keeperID,
 		})
 		cancel()
 		return
@@ -185,6 +214,7 @@ func (h *TCPHandler) HandleReplicate(conn net.Conn, metadata []byte) {
 			Filename:            filename,
 			DestinationKeeperId: h.keeperID,
 			DestinationFilepath: "",
+			SenderId:            h.keeperID,
 		})
 		cancel()
 		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
@@ -198,14 +228,20 @@ func (h *TCPHandler) HandleReplicate(conn net.Conn, metadata []byte) {
 	copy(sentMetadata[2:2+len(msgBytes)], msgBytes)
 	msg := protocol.BuildFullMessage(protocol.OpOk, sentMetadata)
 	conn.Write(msg)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	h.masterClient.NotifyReplicationComplete(ctx, &masterpb.ReplicationCompleteNotification{
-		Success:             true,
-		Filename:            filename,
-		DestinationKeeperId: h.keeperID,
-		DestinationFilepath: filePath,
-	})
-	cancel()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		res, err := h.masterClient.NotifyReplicationComplete(ctx, &masterpb.ReplicationCompleteNotification{
+			Success:             true,
+			Filename:            filename,
+			DestinationKeeperId: h.keeperID,
+			DestinationFilepath: filePath,
+			SenderId:            h.keeperID,
+		})
+		cancel()
+		if err != nil || !res.Success {
+			os.Remove(filePath)
+		}
+	}()
 }
 
 func (h *TCPHandler) SendOk(conn net.Conn) {

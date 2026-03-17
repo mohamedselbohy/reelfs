@@ -25,6 +25,7 @@ func main() {
 	keeperID := flag.String("keeper-id", os.Getenv("KEEPER_ID"), "Keeper ID")
 	masterAddr := flag.String("master-addr", envOrDefault("MASTER_ADDR", "localhost:50051"), "Master gRPC Address")
 	storageDir := flag.String("storage", envOrDefault("STORAGE_DIR", "./data"), "Storage directory")
+	publicAddr := flag.String("pub-addr", envOrDefault("PUBLIC_ADDR", "localhost"), "Public address for clients to reach keepers")
 	flag.Parse()
 	if *keeperID == "" {
 		log.Fatal("keeper-id is required")
@@ -61,8 +62,9 @@ func main() {
 		for {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_, err := masterClient.Heartbeat(ctx, &masterpb.HeartbeatRequest{
-				KeeperId:   *keeperID,
-				TcpAddress: *hostName,
+				KeeperId:      *keeperID,
+				TcpAddress:    *hostName,
+				PublicAddress: *publicAddr,
 			})
 			cancel()
 			if err != nil {
