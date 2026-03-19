@@ -92,28 +92,36 @@ func DecodeMetadataDownload(metadata []byte) (string, uint64, uint64, error) {
 	return name, offset, length, nil
 }
 
-func EncodeMetadataReplicate(filename string, filesize uint64) []byte {
+func EncodeMetadataReplicate(filename string, filesize uint64, senderID string) []byte {
 	// return EncodeMetadataUpload(filename, filesize)
+	senderBytes := []byte(senderID)
 	filenameBytes := []byte(filename)
-	metadata := make([]byte, len(filenameBytes)+10)
-	binary.BigEndian.PutUint16(metadata[0:2], uint16(len(filenameBytes)))
-	copy(metadata[2:2+len(filenameBytes)], filenameBytes)
-	binary.BigEndian.PutUint64(metadata[2+len(filenameBytes):10+len(filenameBytes)], filesize)
+	metadata := make([]byte, len(filenameBytes)+len(senderBytes)+12)
+	binary.BigEndian.PutUint16(metadata[0:2], uint16(len(senderBytes)))
+	copy(metadata[2:2+len(senderBytes)], senderBytes)
+	binary.BigEndian.PutUint16(metadata[2+len(senderBytes):4+len(senderBytes)], uint16(len(filenameBytes)))
+	copy(metadata[4+len(senderBytes):4+len(senderBytes)+len(filenameBytes)], filenameBytes)
+	binary.BigEndian.PutUint64(metadata[4+len(senderBytes)+len(filenameBytes):12+len(senderBytes)+len(filenameBytes)], filesize)
 	return metadata
 }
 
-func DecodeMetadataReplicate(metadata []byte) (string, uint64, error) {
+func DecodeMetadataReplicate(metadata []byte) (string, string, uint64, error) {
 	// return DecodeMetadataUpload(metadata)
 	if len(metadata) < 2 {
-		return "", 0, fmt.Errorf("replicate metadata too short")
+		return "", "", 0, fmt.Errorf("replicate metadata too short")
 	}
-	nameSize := binary.BigEndian.Uint16(metadata[0:2])
-	if len(metadata) < 10+int(nameSize) {
-		return "", 0, fmt.Errorf("replicate metadata too short")
+	senderSize := binary.BigEndian.Uint16(metadata[0:2])
+	if len(metadata) < 10+int(senderSize) {
+		return "", "", 0, fmt.Errorf("replicate metadata too short")
 	}
-	filename := string(metadata[2 : 2+nameSize])
-	filesize := binary.BigEndian.Uint64(metadata[2+nameSize : 10+nameSize])
-	return filename, filesize, nil
+	senderID := string(metadata[2 : 2+senderSize])
+	nameSize := binary.BigEndian.Uint16(metadata[2+senderSize : 4+senderSize])
+	if len(metadata) < 12+int(nameSize)+int(senderSize) {
+		return "", "", 0, fmt.Errorf("replicate metadata too short")
+	}
+	filename := string(metadata[4+senderSize : 4+senderSize+nameSize])
+	filesize := binary.BigEndian.Uint64(metadata[4+senderSize+nameSize : 12+senderSize+nameSize])
+	return senderID, filename, filesize, nil
 }
 
 func EncodeMetadataError(message string) []byte {

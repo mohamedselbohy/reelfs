@@ -10,8 +10,11 @@ service MasterService {
   rpc RequestUpload(UploadRequest) returns (UploadResponse);
   rpc ConfirmUpload(ConfirmUploadRequest) returns (ConfirmUploadResponse);
   rpc RequestDownload(DownloadRequest) returns (DownloadResponse);
+  rpc LogLookup(LogRequest) returns (LogResponse);
 }
 
+message LogRequest {}
+message LogResponse {}
 message UploadRequest {
   string filename = 1;
   int64 filesize = 2;
@@ -76,6 +79,7 @@ message UploadCompleteNotification {
                        // master where it stores info according to transfer_id
   string msg =
       5; // if it failed maybe the client should know what happenned over there.
+  int64 filesize = 6;
 }
 
 message UploadCompleteAck { bool success = 1; }

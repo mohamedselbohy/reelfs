@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
-	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -18,48 +17,55 @@ import (
 )
 
 func main() {
-	grpcAddr := flag.String("grpc-addr", envOrDefault("GRPC_PORT", ":50053"), "gRPC Listen Address")
-	defaultReplicationFactor, _ := strconv.Atoi(envOrDefault("REPLICATION_FACTOR", "3"))
-	replicationFactor := flag.Int("replication-factor", defaultReplicationFactor, "Least number of replicas for each files")
-	fmt.Println("Master Tracker is starting...")
-
-	lookup := master.NewLookupTable()
-	masterInternalServer := master.NewMasterInternalServer(lookup)
+	grpcPort := flag.String("grpc-port", "50040", "")
+	replicationFactor := 3
+	flag.Parse()
+	grpcAddr := ":" + *grpcPort
+	lookup := master.NewLookupTable(replicationFactor)
 	masterServer := master.NewMasterServer(lookup)
+	masterInternalServer := master.NewMasterInternalTestServer(lookup)
 	grpcServer := grpc.NewServer()
-	masterpb.RegisterMasterInternalServiceServer(grpcServer, masterInternalServer)
 	masterpb.RegisterMasterServiceServer(grpcServer, masterServer)
-	go func() {
-		lis, err := net.Listen("tcp", *grpcAddr)
-		if err != nil {
-			log.Printf("grpc server: %v", err)
-		}
-		log.Printf("grpc server listening on %s", *grpcAddr)
-		if err := grpcServer.Serve(lis); err != nil {
-			log.Printf("grpc server: %v", err)
-		}
-	}()
-
-	go func() { // replication goroutine
-		for {
-			lookup.SelectAndReplicateFiles(*replicationFactor)
-			time.Sleep(10 * time.Second)
-		}
-	}()
-
+	masterpb.RegisterMasterInternalServiceServer(grpcServer, masterInternalServer)
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		for {
+			select {
+			case <-time.After(5 * time.Second):
+				lookup.RemoveDeadKeepers()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case <-time.After(5 * time.Second):
+				log.Print("**...REPLICATING FILES...**")
+				lookup.ReplicateFiles()
+				log.Print("**...REPLICATION DONE...**")
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	go func() {
 		<-sigCh
+		log.Println("shutting down...")
+		cancel()
 		grpcServer.GracefulStop()
-		// Terminate Program
-		os.Exit(0)
 	}()
-}
-
-func envOrDefault(envVar, def string) string {
-	if v := os.Getenv(envVar); v != "" {
-		return v
+	lis, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		log.Fatalf("could not listen to grpc: %v", err)
 	}
-	return def
+	log.Printf("server listening to grpc on port %s", *grpcPort)
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("gRPC server: %v", err)
+	}
+	log.Println("server stopped")
 }

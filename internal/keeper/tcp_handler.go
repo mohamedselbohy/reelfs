@@ -4,6 +4,7 @@ package keeper
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,7 +19,7 @@ import (
 type TCPHandler struct {
 	storage      *Storage
 	tcpAddr      string
-	listener     net.Listener
+	listener     *net.Listener
 	masterClient masterpb.MasterInternalServiceClient
 	keeperID     string
 }
@@ -37,12 +38,12 @@ func (h *TCPHandler) Start() error {
 	if err != nil {
 		return fmt.Errorf("listening on %s: %w", h.tcpAddr, err)
 	}
-	h.listener = listener
+	h.listener = &listener
 	log.Printf("TCP Handler Listening on %s", h.tcpAddr)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			if err == net.ErrClosed {
+			if errors.Is(err, net.ErrClosed) {
 				return fmt.Errorf("connection error: %v [terminating...]", err)
 			}
 			log.Printf("accept error: %v", err)
@@ -62,7 +63,7 @@ func (h *TCPHandler) Start() error {
 
 func (h *TCPHandler) Stop() error {
 	if h.listener != nil {
-		return h.listener.Close()
+		return (*h.listener).Close()
 	}
 	return nil
 }
@@ -116,6 +117,7 @@ func (h *TCPHandler) HandleUpload(conn net.Conn, metadata []byte) {
 	conn.SetReadDeadline(time.Time{})
 	defer conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	limit := io.LimitReader(conn, int64(filesize))
+	log.Println("storing file")
 	filePath, err := h.storage.StoreFile(filename, limit, filesize)
 	if err != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -128,16 +130,30 @@ func (h *TCPHandler) HandleUpload(conn net.Conn, metadata []byte) {
 		h.SendError(conn, "storing file: %v", err)
 		return
 	}
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		h.masterClient.NotifyUploadComplete(ctx, &masterpb.UploadCompleteNotification{
+			Success:    false,
+			TransferId: transferID,
+			Msg:        fmt.Sprintf("calculating filesize: %v", err),
+		})
+		cancel()
+		h.SendError(conn, "calculating filesize: %v", err)
+		return
+	}
+	log.Printf("%s %s %s %d", transferID, filePath, h.keeperID, stat.Size())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	res, err := h.masterClient.NotifyUploadComplete(ctx, &masterpb.UploadCompleteNotification{
 		Success:    true,
 		TransferId: transferID,
 		Filepath:   filePath,
 		KeeperId:   h.keeperID,
+		Filesize:   stat.Size(),
 	})
 	cancel()
 	if err != nil || !res.Success {
-		h.SendError(conn, "commiting file: %v", err)
+		h.SendError(conn, "commiting file failed")
 		os.Remove(filePath)
 		return
 	}
@@ -187,7 +203,7 @@ func (h *TCPHandler) HandleDownload(conn net.Conn, metadata []byte) {
 }
 
 func (h *TCPHandler) HandleReplicate(conn net.Conn, metadata []byte) {
-	filename, filesize, err := protocol.DecodeMetadataReplicate(metadata)
+	srcID, filename, filesize, err := protocol.DecodeMetadataReplicate(metadata)
 	if err != nil {
 		h.SendError(conn, "decoding replicate metadata: %v", err)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -195,6 +211,7 @@ func (h *TCPHandler) HandleReplicate(conn net.Conn, metadata []byte) {
 			Success:             false,
 			Filename:            filename,
 			DestinationKeeperId: h.keeperID,
+			SourceKeeperId:      srcID,
 			DestinationFilepath: "",
 			SenderId:            h.keeperID,
 		})
@@ -213,6 +230,7 @@ func (h *TCPHandler) HandleReplicate(conn net.Conn, metadata []byte) {
 			Success:             false,
 			Filename:            filename,
 			DestinationKeeperId: h.keeperID,
+			SourceKeeperId:      srcID,
 			DestinationFilepath: "",
 			SenderId:            h.keeperID,
 		})
@@ -235,11 +253,19 @@ func (h *TCPHandler) HandleReplicate(conn net.Conn, metadata []byte) {
 			Filename:            filename,
 			DestinationKeeperId: h.keeperID,
 			DestinationFilepath: filePath,
+			SourceKeeperId:      srcID,
 			SenderId:            h.keeperID,
 		})
 		cancel()
-		if err != nil || !res.Success {
+		if err != nil {
+			log.Printf("committing replication: %v", err)
+			return
+		}
+		if !res.Success {
+			log.Print("comitting failed")
 			os.Remove(filePath)
+		} else {
+			log.Printf("file committed")
 		}
 	}()
 }

@@ -18,4 +18,5 @@ message ReplicateCommand {
 message ReplicateResponse {
   bool success = 1;
   string msg = 2;
+  bool internal_error = 3;
 }

@@ -72,8 +72,8 @@ func (c *TCPClient) Upload(transferID string, filename string, content io.Reader
 	return nil
 }
 
-func (c *TCPClient) Replicate(filename string, content io.Reader, filesize uint64) (string, error) {
-	metadata := protocol.EncodeMetadataReplicate(filename, filesize)
+func (c *TCPClient) Replicate(srcID string, filename string, content io.Reader, filesize uint64) (string, error) {
+	metadata := protocol.EncodeMetadataReplicate(filename, filesize, srcID)
 	msg := protocol.BuildFullMessage(protocol.OpReplicate, metadata)
 	if _, err := c.conn.Write(msg); err != nil {
 		return "", err
