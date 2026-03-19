@@ -95,6 +95,8 @@ func (h *TCPHandler) HandleConnection(conn net.Conn) {
 		h.HandleDownload(conn, metadata)
 	case protocol.OpReplicate:
 		h.HandleReplicate(conn, metadata)
+	case protocol.OpCheckDownload:
+		h.HandleCheckDownload(conn, metadata)
 	default:
 		h.SendError(conn, "unknown opcode: %d", op)
 	}
@@ -268,6 +270,32 @@ func (h *TCPHandler) HandleReplicate(conn net.Conn, metadata []byte) {
 			log.Printf("file committed")
 		}
 	}()
+}
+
+func (h *TCPHandler) HandleCheckDownload(conn net.Conn, metadata []byte) {
+	filename, filesize, err := protocol.DecodeMetadataCheckDownload(metadata)
+	if err != nil {
+		h.SendError(conn, "decoding check download metadata: %v", err)
+		return
+	}
+
+	f, err := h.storage.OpenFile(filename)
+	if err != nil {
+		h.SendError(conn, "opening file: %v", err)
+		return
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		h.SendError(conn, "checking filesize: %v", err)
+		return
+	}
+	if info.Size() != int64(filesize) {
+		h.SendError(conn, "filesize is not correct")
+		return
+	}
+	h.SendOk(conn)
 }
 
 func (h *TCPHandler) SendOk(conn net.Conn) {
