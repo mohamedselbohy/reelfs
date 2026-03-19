@@ -10,11 +10,12 @@ import (
 var ErrInvalidHeader = errors.New("invalid header")
 
 const (
-	OpUpload    = 0x01
-	OpDownload  = 0x02
-	OpReplicate = 0x03
-	OpOk        = 0x10
-	OpError     = 0x11
+	OpUpload        = 0x01
+	OpDownload      = 0x02
+	OpReplicate     = 0x03
+	OpCheckDownload = 0x04
+	OpOk            = 0x10
+	OpError         = 0x11
 )
 
 const HeaderSize = 9 // 1 -> OpCode, 8-> payloadsize (uint64)
@@ -71,10 +72,10 @@ func DecodeMetadataUpload(metadata []byte) (string, string, uint64, error) {
 func EncodeMetadataDownload(filename string, offset uint64, length uint64) []byte {
 	filenameBytes := []byte(filename)
 	metadata := make([]byte, 2+len(filenameBytes)+16)
-	binary.BigEndian.PutUint16(metadata[0:], uint16(len(filenameBytes)))
-	copy(metadata[2:], filenameBytes)
-	binary.BigEndian.PutUint64(metadata[2+len(filenameBytes):], offset)
-	binary.BigEndian.PutUint64(metadata[2+len(filenameBytes)+8:], length)
+	binary.BigEndian.PutUint16(metadata[0:2], uint16(len(filenameBytes)))
+	copy(metadata[2:2+len(filenameBytes)], filenameBytes)
+	binary.BigEndian.PutUint64(metadata[2+len(filenameBytes):10+len(filenameBytes)], offset)
+	binary.BigEndian.PutUint64(metadata[10+len(filenameBytes):18+len(filenameBytes)], length)
 	return metadata
 }
 
@@ -90,6 +91,28 @@ func DecodeMetadataDownload(metadata []byte) (string, uint64, uint64, error) {
 	offset := binary.BigEndian.Uint64(metadata[2+nameSize : 10+nameSize])
 	length := binary.BigEndian.Uint64(metadata[10+nameSize:])
 	return name, offset, length, nil
+}
+
+func EncodeMetadataCheckDownload(filename string, filesize uint64) []byte {
+	filenameBytes := []byte(filename)
+	metadata := make([]byte, 10+len(filenameBytes))
+	binary.BigEndian.PutUint16(metadata[0:2], uint16(len(filenameBytes)))
+	copy(metadata[2:2+len(filenameBytes)], filenameBytes)
+	binary.BigEndian.PutUint64(metadata[2+len(filenameBytes):10+len(filenameBytes)], filesize)
+	return metadata
+}
+
+func DecodeMetadataCheckDownload(metadata []byte) (string, uint64, error) {
+	if len(metadata) < 2 {
+		return "", 0, errors.New("error metadata too short")
+	}
+	nameSize := binary.BigEndian.Uint16(metadata[0:2])
+	if len(metadata) < 10+int(nameSize) {
+		return "", 0, errors.New("error metadata too short")
+	}
+	filename := string(metadata[2 : 2+nameSize])
+	filesize := binary.BigEndian.Uint64(metadata[2+nameSize : 10+nameSize])
+	return filename, filesize, nil
 }
 
 func EncodeMetadataReplicate(filename string, filesize uint64, senderID string) []byte {

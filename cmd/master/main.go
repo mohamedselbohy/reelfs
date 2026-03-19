@@ -18,10 +18,10 @@ import (
 
 func main() {
 	grpcPort := flag.String("grpc-port", "50040", "")
-	replicationFactor := 3
+	replicationFactor := flag.Int("replicas", 3, "")
 	flag.Parse()
 	grpcAddr := ":" + *grpcPort
-	lookup := master.NewLookupTable(replicationFactor)
+	lookup := master.NewLookupTable(*replicationFactor)
 	masterServer := master.NewMasterServer(lookup)
 	masterInternalServer := master.NewMasterInternalTestServer(lookup)
 	grpcServer := grpc.NewServer()

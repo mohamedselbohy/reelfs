@@ -45,6 +45,8 @@ message DownloadRequest { string filename = 1; }
 message DownloadResponse {
   int64 filesize = 1;
   repeated reelfs.KeeperInfo keepers = 2;
+  bool success = 3;
+  string msg = 4;
 }
 
 service MasterInternalService {

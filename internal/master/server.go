@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"reelfs/gen/masterpb"
+	"reelfs/gen/shared"
 
 	"github.com/google/uuid"
 )
@@ -54,6 +55,58 @@ func (s *MasterInternalTestServer) FileSync(ctx context.Context, req *masterpb.F
 func (s *MasterTestServer) LogLookup(ctx context.Context, req *masterpb.LogRequest) (*masterpb.LogResponse, error) {
 	s.lookup.PrintLookup()
 	return &masterpb.LogResponse{}, nil
+}
+
+func (s *MasterTestServer) RequestDownload(ctx context.Context, req *masterpb.DownloadRequest) (*masterpb.DownloadResponse, error) {
+	val, exists := s.lookup.fileKeepers.records.Load(req.Filename)
+	if !exists {
+		return &masterpb.DownloadResponse{
+			Success: false,
+			Msg:     "file not found",
+		}, nil
+	}
+	fileEntry, fileOK := val.(*FileKeepersEntry)
+	if !fileOK || fileEntry == nil {
+		return &masterpb.DownloadResponse{
+			Success: false,
+			Msg:     "file not found",
+		}, nil
+	}
+	if fileEntry.filesize == 0 {
+		return &masterpb.DownloadResponse{
+			Success: false,
+			Msg:     "file not found",
+		}, nil
+	}
+	var aliveOwners []*shared.KeeperInfo
+	for _, keeper := range fileEntry.keepers {
+		val, exists := s.lookup.keepers.Load(keeper.keeperID)
+		if !exists {
+			continue
+		}
+		keeperEntry, keeperOK := val.(*KeeperEntry)
+		if !keeperOK || keeperEntry == nil {
+			continue
+		}
+		if keeperEntry.IsAlive {
+			aliveOwners = append(aliveOwners, &shared.KeeperInfo{
+				KeeperId: keeper.keeperID,
+				Address:  keeperEntry.Address,
+			})
+		}
+	}
+	if len(aliveOwners) == 0 {
+		return &masterpb.DownloadResponse{
+			Success: false,
+			Msg:     "no alive keepers holding this file",
+		}, nil
+	}
+
+	return &masterpb.DownloadResponse{
+		Success:  true,
+		Filesize: int64(fileEntry.filesize),
+		Keepers:  aliveOwners,
+	}, nil
 }
 
 func (s *MasterTestServer) RequestUpload(ctx context.Context, req *masterpb.UploadRequest) (*masterpb.UploadResponse, error) {

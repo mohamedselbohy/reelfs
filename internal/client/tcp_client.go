@@ -2,12 +2,15 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"time"
 
 	"reelfs/pkg/protocol"
+
+	"github.com/schollz/progressbar/v3"
 )
 
 type TCPClient struct {
@@ -141,4 +144,68 @@ func (c *TCPClient) Download(filename string, offset uint64, length uint64) (io.
 		return nil, fmt.Errorf("invalid response")
 	}
 	return io.LimitReader(c.conn, int64(length)), nil
+}
+
+func (c *TCPClient) CheckDownload(filename string, filesize uint64) error {
+	metadata := protocol.EncodeMetadataCheckDownload(filename, filesize)
+	msg := protocol.BuildFullMessage(protocol.OpCheckDownload, metadata)
+	if _, err := c.conn.Write(msg); err != nil {
+		return err
+	}
+	header := make([]byte, protocol.HeaderSize)
+	if _, err := c.conn.Read(header); err != nil {
+		return err
+	}
+	op, metadataSize, err := protocol.DecodeHeader(header)
+	if err != nil {
+		return err
+	}
+	if op == protocol.OpError {
+		errorMetadata := make([]byte, metadataSize)
+		if _, err := c.conn.Read(errorMetadata); err != nil {
+			return err
+		}
+		errorMsg, err := protocol.DecodeMetadataError(errorMetadata)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("download failed: %s", errorMsg)
+	} else if op != protocol.OpOk {
+		return errors.New("invalid response")
+	}
+	return nil
+}
+
+func (c *TCPClient) UploadWithProgress(transferID string, filename string, content io.Reader, filesize uint64, bar *progressbar.ProgressBar) error {
+	metadata := protocol.EncodeMetadataUpload(transferID, filename, filesize)
+	fullMsg := protocol.BuildFullMessage(protocol.OpUpload, metadata)
+	if _, err := c.conn.Write(fullMsg); err != nil {
+		return err
+	}
+	reader := io.TeeReader(content, bar)
+	if _, err := io.Copy(c.conn, reader); err != nil {
+		return err
+	}
+	header := make([]byte, protocol.HeaderSize)
+	if _, err := io.ReadFull(c.conn, header); err != nil {
+		return err
+	}
+	op, metadataSize, err := protocol.DecodeHeader(header)
+	if err != nil {
+		return err
+	}
+	if op == protocol.OpError {
+		errorMetadata := make([]byte, metadataSize)
+		if _, err := io.ReadFull(c.conn, errorMetadata); err != nil {
+			return err
+		}
+		errorMsg, err := protocol.DecodeMetadataError(errorMetadata)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("[keeper error]: %s", errorMsg)
+	} else if op != protocol.OpOk {
+		return errors.New("invalid response")
+	}
+	return nil
 }
