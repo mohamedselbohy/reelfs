@@ -50,7 +50,7 @@ func (s *KeeperServer) Replicate(ctx context.Context, req *keeperpb.ReplicateCom
 		f.Close()
 		return &keeperpb.ReplicateResponse{Success: false, Msg: fmt.Sprintf("dial destination: %v", err), InternalError: false}, err
 	}
-	go s.doReplicate(ctx, req.DestinationId, filename, filesize, f, tcpClient)
+	go s.doReplicate(context.Background(), req.DestinationId, filename, filesize, f, tcpClient)
 	return &keeperpb.ReplicateResponse{Success: true, Msg: "replication started"}, nil
 }
 
