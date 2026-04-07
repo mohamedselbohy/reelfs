@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -18,7 +19,23 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+func getLocalIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			fmt.Println("could not read private ip address")
+		}
+	}()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
+}
+
 func main() {
+	privateIP := getLocalIP()
 	dataDir := flag.String("data-dir", "dataDir", "")
 	keeperID := flag.String("keeper-id", "1", "")
 	tcpAddr := flag.String("tcp-addr", "50050", "")
@@ -60,8 +77,8 @@ func main() {
 				ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 				_, err := masterClient.Heartbeat(ctx, &masterpb.HeartbeatRequest{
 					KeeperId:      *keeperID,
-					TcpAddress:    "localhost:" + *grpcAddr,
-					PublicAddress: "localhost:" + *tcpAddr,
+					TcpAddress:    privateIP + ":" + *grpcAddr,
+					PublicAddress: privateIP + ":" + *tcpAddr,
 				})
 				cancel()
 				if err != nil {
