@@ -41,6 +41,8 @@ func main() {
 	tcpAddr := flag.String("tcp-addr", "50050", "")
 	grpcAddr := flag.String("grpc-addr", "50051", "")
 	masterAddr := flag.String("master-addr", "localhost:50040", "")
+	privateAddr := flag.String("private-addr", privateIP, "")
+	publicAddr := flag.String("public-addr", privateIP, "")
 	flag.Parse()
 	log.Printf("keeper of id %s listening on port %s for directory %s", *keeperID, *tcpAddr, *dataDir)
 	st := keeper.NewStorage(*dataDir)
@@ -77,8 +79,8 @@ func main() {
 				ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 				_, err := masterClient.Heartbeat(ctx, &masterpb.HeartbeatRequest{
 					KeeperId:      *keeperID,
-					TcpAddress:    privateIP + ":" + *grpcAddr,
-					PublicAddress: privateIP + ":" + *tcpAddr,
+					TcpAddress:    *publicAddr + ":" + *grpcAddr,
+					PublicAddress: *privateAddr + ":" + *tcpAddr,
 				})
 				cancel()
 				if err != nil {
